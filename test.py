@@ -115,7 +115,9 @@ def plot_cir(cir_l, cir_h, cir_h_fake, pred_coarse, pred_fine, gt, folder_path):
         pred_coarse_val = pred_coarse[i].item()
         gt_val = gt[i].item()
         focus = int(pred_fine_val//3.75) + np.arange(-np.minimum(int(pred_fine_val//3.75),30), np.minimum(30, cir_l.shape[2]-int(pred_fine_val//3.75)))
-        plt.figure(figsize=(12, 6))
+        
+        # 第一个图：CIR对比
+        fig1 = plt.figure(figsize=(12, 6))
         plt.subplot(121)
         line1,= plt.plot(x[focus], cir_l_amp[focus])
         line2,= plt.plot(x[focus], cir_h_amp[focus])
@@ -132,8 +134,10 @@ def plot_cir(cir_l, cir_h, cir_h_fake, pred_coarse, pred_fine, gt, folder_path):
 
         save_path = os.path.join(folder_path, str(i)+'_cir.png')
         plt.savefig(save_path)
+        plt.close(fig1)  # 关闭图形释放内存
 
-        plt.figure(figsize=(8, 6))
+        # 第二个图：ToA估计
+        fig2 = plt.figure(figsize=(8, 6))
         line1,= plt.plot(x[focus], cir_h_fake_amp[focus])
         line2,= plt.plot(pred_coarse_val*np.ones(100), np.arange(0, 1, 0.01), linestyle='--')
         line3,= plt.plot(pred_fine_val*np.ones(100), np.arange(0, 1, 0.01), linestyle='--')
@@ -143,6 +147,7 @@ def plot_cir(cir_l, cir_h, cir_h_fake, pred_coarse, pred_fine, gt, folder_path):
         plt.legend([line1, line2, line3, line4], ['De-noised high resolution CIR', 'coarse estimation', 'fine estimation', 'ground truth'])
         save_path = os.path.join(folder_path, str(i)+'_toa.png')
         plt.savefig(save_path)
+        plt.close(fig2)  # 关闭图形释放内存
 
 
 def test(args):

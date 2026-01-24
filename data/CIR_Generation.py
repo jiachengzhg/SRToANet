@@ -171,49 +171,48 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
     
-    # # 创建 traindata 目录
-    # if not os.path.exists('traindata'):
-    #     os.makedirs('traindata')
+    # 创建 traindata 目录
+    if not os.path.exists('traindata'):
+        os.makedirs('traindata')
     
-    # # 加载训练数据
-    # train_data = loadmat('Pathset_train.mat')
+    # 加载训练数据
+    train_data = loadmat('Pathset_train.mat')
     
-    # DISPLAY = 0  # 1 for display mode, 0 for generation mode
-    # ofdm_bw = 40e6  # Target ofdm bandwidth
-    # upsample = 2  # Up-sampling rate for super-resolution
+    DISPLAY = 0  # 1 for display mode, 0 for generation mode
+    ofdm_bw = 40e6  # Target ofdm bandwidth
+    upsample = 2  # Up-sampling rate for super-resolution
     
-    # # 提取数据
-    # saved_dist = train_data['saved_dist'].flatten()
-    # saved_mag = load_cell_array(train_data, 'saved_mag')
-    # saved_paths = load_cell_array(train_data, 'saved_paths')
+    # 提取数据
+    saved_dist = train_data['saved_dist'].flatten()
+    saved_mag = load_cell_array(train_data, 'saved_mag')
+    saved_paths = load_cell_array(train_data, 'saved_paths')
     
-    # # *_A for CIR enhancement and *_B for ToA estimation stage
-    # # MATLAB索引 1:100000 -> Python索引 0:100000
-    # # MATLAB索引 100001:end -> Python索引 100000:
-    # saved_dist_A = saved_dist[0:100000]
-    # saved_dist_B = saved_dist[100000:]
-    # saved_mag_A = saved_mag[0:100000]
-    # saved_mag_B = saved_mag[100000:]
-    # saved_paths_A = saved_paths[0:100000]
-    # saved_paths_B = saved_paths[100000:]
+    # *_A for CIR enhancement and *_B for ToA estimation stage
+    # MATLAB索引 1:100000 -> Python索引 0:100000
+    # MATLAB索引 100001:end -> Python索引 100000:
+    saved_dist_A = saved_dist[0:100000]
+    saved_dist_B = saved_dist[100000:]
+    saved_mag_A = saved_mag[0:100000]
+    saved_mag_B = saved_mag[100000:]
+    saved_paths_A = saved_paths[0:100000]
+    saved_paths_B = saved_paths[100000:]
     
-    # ############## Generate low SNR training sets ################
-    # # MATLAB: -2.5:0.1:7.5 包含 7.5
-    # SNR_list = np.arange(-2.5, 7.5 + 0.1, 0.1)
-    # save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_A.mat'
-    # generate_dataset(saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
-    # save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_B.mat'
-    # generate_dataset(saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
+    ############## Generate low SNR training sets ################
+    # MATLAB: -2.5:0.1:7.5 包含 7.5
+    SNR_list = np.arange(-2.5, 7.5 + 0.1, 0.1)
+    save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_A.mat'
+    generate_dataset(saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
+    save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_B.mat'
+    generate_dataset(saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
     
-    # ############## Generate high SNR training sets ################
-    # # MATLAB: 7.5:0.1:32.5 包含 32.5
-    # SNR_list = np.arange(7.5, 32.5 + 0.1, 0.1)
-    # save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_A.mat'
-    # generate_dataset(saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
-    # save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_B.mat'
-    # generate_dataset(saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
+    ############## Generate high SNR training sets ################
+    # MATLAB: 7.5:0.1:32.5 包含 32.5
+    SNR_list = np.arange(7.5, 32.5 + 0.1, 0.1)
+    save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_A.mat'
+    generate_dataset(saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
+    save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_B.mat'
+    generate_dataset(saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
     
-    ##
     ############## Generate test sets ##############################
     
     if not os.path.exists('testdata'):

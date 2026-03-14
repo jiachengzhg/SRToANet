@@ -73,6 +73,9 @@ def make_parser():
     parser.add_argument('--seed', type=int, default=42,
       help='random seed for reproducibility')
 
+    parser.add_argument('--alpha', type=float, default=None,
+      help='alpha value used in data generation (e.g. 0.1, 0.9). None for original data.')
+
     return parser
 
 def interp1d(y, x, x_new):
@@ -161,10 +164,12 @@ def test(args):
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
+    suffix = f"_alpha{args.alpha}" if args.alpha is not None else ""
+    
     if args.use_802:
-        mat_data = sio.loadmat('data/testdata/Test_x'+str(args.up)+'_'+str(args.snr)+'dB_'+str(args.bandwidth)+'MHz_802.mat')
+        mat_data = sio.loadmat('data/testdata/Test_x'+str(args.up)+'_'+str(args.snr)+'dB_'+str(args.bandwidth)+'MHz_802'+suffix+'.mat')
     else:
-        mat_data = sio.loadmat('data/testdata/Test_x'+str(args.up)+'_'+str(args.snr)+'dB_'+str(args.bandwidth)+'MHz.mat')
+        mat_data = sio.loadmat('data/testdata/Test_x'+str(args.up)+'_'+str(args.snr)+'dB_'+str(args.bandwidth)+'MHz'+suffix+'.mat')
 
     cir_l= mat_data['cir_l']
     cir_h= mat_data['cir_h']

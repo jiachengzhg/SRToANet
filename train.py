@@ -94,6 +94,9 @@ def make_parser():
     
     parser.add_argument('--seed', type=int, default=42,
       help='random seed for reproducibility')
+    
+    parser.add_argument('--alpha', type=float, default=None,
+      help='alpha value used in data generation (e.g. 0.1, 0.9). None for original data.')
 
     return parser
 
@@ -335,12 +338,14 @@ def train(args):
         print('Not using end-to-end joint optimization...')
     
     # Make the dataset
-    dataset_A = dataLoader('data/traindata/Train_x'+str(args.up)+'_'+args.snr+'_'+str(args.bandwidth)+'MHz_A.mat')
+    suffix = f"_alpha{args.alpha}" if args.alpha is not None else ""
+    
+    dataset_A = dataLoader('data/traindata/Train_x'+str(args.up)+'_'+args.snr+'_'+str(args.bandwidth)+'MHz_A'+suffix+'.mat')
     train_loader_A = torch.utils.data.DataLoader(dataset_A, batch_size=args.batch_sr,
                                            shuffle=True, num_workers=1,
                                            pin_memory=True)
 
-    dataset_B = dataLoader('data/traindata/Train_x'+str(args.up)+'_'+args.snr+'_'+str(args.bandwidth)+'MHz_B.mat')
+    dataset_B = dataLoader('data/traindata/Train_x'+str(args.up)+'_'+args.snr+'_'+str(args.bandwidth)+'MHz_B'+suffix+'.mat')
     train_loader_B = torch.utils.data.DataLoader(dataset_B, batch_size=args.batch_reg,
                                            shuffle=True, num_workers=1,
                                            pin_memory=True)

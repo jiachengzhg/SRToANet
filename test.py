@@ -46,6 +46,9 @@ def make_parser():
       help='define the system bandwidth')
     parser.add_argument('--up', type=int, default=2,
       help='upsamping rate for the super resolution net')
+    parser.add_argument('--waveform', default='ones',
+      choices=('ones', 'zc', 'gray', 'mseq'),
+      help='waveform type used during data generation')
     parser.add_argument('--use_ori', type = str2bool, nargs='?',
       default=False,
       help='whether to include the original observation for the regressors')
@@ -162,9 +165,13 @@ def test(args):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     if args.use_802:
-        mat_data = sio.loadmat('data/testdata/Test_x'+str(args.up)+'_'+str(args.snr)+'dB_'+str(args.bandwidth)+'MHz_802.mat')
+        mat_data = sio.loadmat(
+            'data/testdata/Test_x'+str(args.up)+'_'+str(args.snr)+'dB_'+str(args.bandwidth)+'MHz_'+args.waveform+'_802.mat'
+        )
     else:
-        mat_data = sio.loadmat('data/testdata/Test_x'+str(args.up)+'_'+str(args.snr)+'dB_'+str(args.bandwidth)+'MHz.mat')
+        mat_data = sio.loadmat(
+            'data/testdata/Test_x'+str(args.up)+'_'+str(args.snr)+'dB_'+str(args.bandwidth)+'MHz_'+args.waveform+'.mat'
+        )
 
     cir_l= mat_data['cir_l']
     cir_h= mat_data['cir_h']
@@ -225,7 +232,7 @@ def test(args):
     rmse_final = torch.sqrt(torch.mean((dist[:args.num_test]-pred_final)**2)).item()
     print('RMSE (coarse): %.3f, RMSE (fine): %.3f' % (rmse_coarse, rmse_final))
     
-    plot_folder = os.path.join(folder, 'figures_'+str(args.snr)+'_dB')
+    plot_folder = os.path.join(folder, 'figures_'+str(args.snr)+'_dB_'+args.waveform)
     if os.path.exists(plot_folder) == False:
         os.makedirs(plot_folder)
 

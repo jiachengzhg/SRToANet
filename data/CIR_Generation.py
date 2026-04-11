@@ -6,8 +6,10 @@
 ######################################################################
 
 import os
+import argparse
 import numpy as np
 from scipy.io import loadmat, savemat
+import sdr
 
 
 def sum_exponentials(freq_grid, paths, coef):
@@ -30,7 +32,56 @@ def sum_exponentials(freq_grid, paths, coef):
     return freq_resp
 
 
-def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsample, path, debug):
+def build_waveform_xk(N_tones, waveform_type, waveform_cfg=None):
+    """
+    构造频域发射序列 Xk，满足 mean(|Xk|^2)=1
+    """
+    if waveform_cfg is None:
+        waveform_cfg = {}
+
+    waveform_type = waveform_type.lower()
+    if waveform_type == 'ones':
+        xk = np.ones(N_tones, dtype=complex)
+    elif waveform_type == 'zc':
+        root = int(waveform_cfg.get('zc_root', 25))
+        shift = int(waveform_cfg.get('zc_shift', 0))
+        xk = sdr.zadoff_chu_sequence(N_tones, root, shift=shift).astype(complex)
+    elif waveform_type == 'gray':
+        gray = sdr.gray_code(N_tones)
+        # 将 Gray 序列映射为 QPSK，避免退化为纯实序列
+        b0 = gray & 1
+        b1 = (gray >> 1) & 1
+        xk = ((1 - 2 * b0) + 1j * (1 - 2 * b1)) / np.sqrt(2)
+        xk = xk.astype(complex)
+    elif waveform_type == 'mseq':
+        degree = int(waveform_cfg.get('mseq_degree', 7))
+        index = int(waveform_cfg.get('mseq_index', 1))
+        seq = sdr.m_sequence(degree, index=index, output='bipolar')
+        repeat = int(np.ceil(N_tones / len(seq)))
+        seq = np.tile(seq, repeat)[:N_tones]
+        xk = seq.astype(float).astype(complex)
+    else:
+        raise ValueError(f'Unsupported waveform_type: {waveform_type}')
+
+    power = np.mean(np.abs(xk) ** 2)
+    if power <= 0:
+        raise ValueError('Waveform power must be positive.')
+    return xk / np.sqrt(power)
+
+
+def generate_dataset(
+    saved_dist,
+    saved_mag,
+    saved_paths,
+    SNR_list,
+    ofdm_bw,
+    upsample,
+    path,
+    debug,
+    waveform_type='ones',
+    waveform_cfg=None,
+    eps_div=1e-8
+):
     """
     生成数据集
     
@@ -63,7 +114,14 @@ def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsa
     cir_h = np.zeros((N, 2, N_tones * upsample))
     cfr_h = np.zeros((N, 2, N_tones * upsample))
     
-    print(f'Generating {path}...,  Upsample: {upsample}, Bandwidth: {int(ofdm_bw / 1e6)}')
+    xk = build_waveform_xk(N_tones, waveform_type, waveform_cfg)
+    xk_real = np.real(xk).reshape(1, -1)
+    xk_imag = np.imag(xk).reshape(1, -1)
+
+    print(
+        f'Generating {path}..., Upsample: {upsample}, '
+        f'Bandwidth: {int(ofdm_bw / 1e6)}, Waveform: {waveform_type}'
+    )
     
     for kk in range(len(saved_dist)):
         ##################################################
@@ -101,9 +159,15 @@ def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsa
         freq_resp_l = np.sqrt(signal_pwr) * freq_resp_l / np.sqrt(power)
         freq_resp_h = np.sqrt(signal_pwr) * freq_resp_h / np.sqrt(power)
         
-        # add noise
+        # OFDM观测模型: Yk = Hk * Xk + Nk, H_est = Yk / Xk
         noise = np.sqrt(noise_pwr / 2) * (np.random.randn(N_tones) + 1j * np.random.randn(N_tones))
-        freq_resp_obs = freq_resp_l + noise
+        yk = freq_resp_l * xk + noise
+
+        den = xk.copy()
+        small_idx = np.abs(den) < eps_div
+        if np.any(small_idx):
+            den[small_idx] = eps_div * np.exp(1j * np.angle(den[small_idx] + 1e-12))
+        freq_resp_obs = yk / den
         
         # Zero padding the observed channel frequency response
         # MATLAB索引: freq_resp_obs(1:N_tones/2) -> Python: freq_resp_obs[0:N_tones//2]
@@ -148,7 +212,18 @@ def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsa
         cir_h[kk, 1, :] = np.imag(cirh)
     
     dist = saved_dist.reshape(-1, 1)  # 转换为列向量 (N, 1) 以匹配 MATLAB 格式
-    savemat(path, {'cir_l': cir_l, 'cir_h': cir_h, 'cfr_h': cfr_h, 'dist': dist})
+    savemat(
+        path,
+        {
+            'cir_l': cir_l,
+            'cir_h': cir_h,
+            'cfr_h': cfr_h,
+            'dist': dist,
+            'waveform_type': np.array([waveform_type]),
+            'xk_real': xk_real,
+            'xk_imag': xk_imag
+        }
+    )
 
 
 def load_cell_array(mat_data, key):
@@ -167,6 +242,23 @@ def load_cell_array(mat_data, key):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--waveforms',
+        type=str,
+        default='ones,zc,gray,mseq',
+        help='comma-separated waveform list, e.g. ones,zc,gray,mseq'
+    )
+    parser.add_argument('--debug', type=int, default=0, choices=[0, 1], help='display mode')
+    parser.add_argument('--ofdm_bw', type=float, default=40e6, help='OFDM bandwidth')
+    parser.add_argument('--upsample', type=int, default=2, help='super-resolution upsample rate')
+    parser.add_argument('--zc_root', type=int, default=25, help='Zadoff-Chu root')
+    parser.add_argument('--zc_shift', type=int, default=0, help='Zadoff-Chu cyclic shift')
+    parser.add_argument('--mseq_degree', type=int, default=7, help='m-sequence degree')
+    parser.add_argument('--mseq_index', type=int, default=1, help='m-sequence index')
+    parser.add_argument('--eps_div', type=float, default=1e-8, help='stability epsilon for H_est=Y/X')
+    args = parser.parse_args()
+
     # 获取脚本所在目录
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
@@ -178,9 +270,16 @@ def main():
     # 加载训练数据
     train_data = loadmat('Pathset_train.mat')
     
-    DISPLAY = 0  # 1 for display mode, 0 for generation mode
-    ofdm_bw = 40e6  # Target ofdm bandwidth
-    upsample = 2  # Up-sampling rate for super-resolution
+    DISPLAY = args.debug
+    ofdm_bw = args.ofdm_bw
+    upsample = args.upsample
+    waveform_types = [w.strip().lower() for w in args.waveforms.split(',') if w.strip()]
+    waveform_cfg = {
+        'zc_root': args.zc_root,
+        'zc_shift': args.zc_shift,
+        'mseq_degree': args.mseq_degree,
+        'mseq_index': args.mseq_index
+    }
     
     # 提取数据
     saved_dist = train_data['saved_dist'].flatten()
@@ -200,18 +299,32 @@ def main():
     ############## Generate low SNR training sets ################
     # MATLAB: -2.5:0.1:7.5 包含 7.5
     SNR_list = np.arange(-2.5, 7.5 + 0.1, 0.1)
-    save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_A.mat'
-    generate_dataset(saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
-    save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_B.mat'
-    generate_dataset(saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
+    for waveform_type in waveform_types:
+        save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_A_{waveform_type}.mat'
+        generate_dataset(
+            saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY,
+            waveform_type=waveform_type, waveform_cfg=waveform_cfg, eps_div=args.eps_div
+        )
+        save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_B_{waveform_type}.mat'
+        generate_dataset(
+            saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY,
+            waveform_type=waveform_type, waveform_cfg=waveform_cfg, eps_div=args.eps_div
+        )
     
     ############## Generate high SNR training sets ################
     # MATLAB: 7.5:0.1:32.5 包含 32.5
     SNR_list = np.arange(7.5, 32.5 + 0.1, 0.1)
-    save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_A.mat'
-    generate_dataset(saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
-    save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_B.mat'
-    generate_dataset(saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
+    for waveform_type in waveform_types:
+        save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_A_{waveform_type}.mat'
+        generate_dataset(
+            saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY,
+            waveform_type=waveform_type, waveform_cfg=waveform_cfg, eps_div=args.eps_div
+        )
+        save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_B_{waveform_type}.mat'
+        generate_dataset(
+            saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY,
+            waveform_type=waveform_type, waveform_cfg=waveform_cfg, eps_div=args.eps_div
+        )
     
     ############## Generate test sets ##############################
     
@@ -219,34 +332,42 @@ def main():
         os.makedirs('testdata')
     
     test_data = loadmat('Pathset_test.mat')
-    DISPLAY = 0  # 1 for display mode, 0 for generation mode
-    ofdm_bw = 40e6  # Target ofdm bandwidth
-    upsample = 2
+    DISPLAY = args.debug
+    ofdm_bw = args.ofdm_bw
+    upsample = args.upsample
     SNR_set = np.arange(0, 30 + 5, 5)  # [0, 5, 10, 15, 20, 25, 30]
     
     saved_dist = test_data['saved_dist'].flatten()
     saved_mag = load_cell_array(test_data, 'saved_mag')
     saved_paths = load_cell_array(test_data, 'saved_paths')
     
-    for i in range(len(SNR_set)):
-        SNR_list = np.array([SNR_set[i], SNR_set[i]])  # Set of possible SNR (dB)
-        save_path = f'testdata/Test_x{upsample}_{SNR_set[i]}dB_{int(ofdm_bw * 1e-6)}MHz.mat'
-        generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
+    for waveform_type in waveform_types:
+        for i in range(len(SNR_set)):
+            SNR_list = np.array([SNR_set[i], SNR_set[i]])
+            save_path = f'testdata/Test_x{upsample}_{SNR_set[i]}dB_{int(ofdm_bw * 1e-6)}MHz_{waveform_type}.mat'
+            generate_dataset(
+                saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsample, save_path, DISPLAY,
+                waveform_type=waveform_type, waveform_cfg=waveform_cfg, eps_div=args.eps_div
+            )
     
     test_data_802 = loadmat('Pathset_test_802.mat')
-    DISPLAY = 0  # 1 for display mode, 0 for generation mode
-    ofdm_bw = 40e6  # Target ofdm bandwidth
-    upsample = 2
+    DISPLAY = args.debug
+    ofdm_bw = args.ofdm_bw
+    upsample = args.upsample
     SNR_set = np.arange(0, 30 + 5, 5)  # [0, 5, 10, 15, 20, 25, 30]
     
     saved_dist = test_data_802['saved_dist'].flatten()
     saved_mag = load_cell_array(test_data_802, 'saved_mag')
     saved_paths = load_cell_array(test_data_802, 'saved_paths')
     
-    for i in range(len(SNR_set)):
-        SNR_list = np.array([SNR_set[i], SNR_set[i]])  # Set of possible SNR (dB)
-        save_path = f'testdata/Test_x{upsample}_{SNR_set[i]}dB_{int(ofdm_bw * 1e-6)}MHz_802.mat'
-        generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsample, save_path, DISPLAY)
+    for waveform_type in waveform_types:
+        for i in range(len(SNR_set)):
+            SNR_list = np.array([SNR_set[i], SNR_set[i]])
+            save_path = f'testdata/Test_x{upsample}_{SNR_set[i]}dB_{int(ofdm_bw * 1e-6)}MHz_{waveform_type}_802.mat'
+            generate_dataset(
+                saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsample, save_path, DISPLAY,
+                waveform_type=waveform_type, waveform_cfg=waveform_cfg, eps_div=args.eps_div
+            )
 
 
 if __name__ == '__main__':

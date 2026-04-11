@@ -14,7 +14,14 @@ This repository has been extended with the following improvements:
 - **Description**: After the standard two-stage training (SR + Regressor), performs an additional joint fine-tuning phase where all networks (G, RA, RB) are optimized together. This allows the super-resolution network to learn features that are specifically beneficial for localization, rather than just waveform reconstruction.
 - **Benefit**: Bridges the gap between SR quality and ToA precision, often yielding lower RMSE.
 
-### 3. **Reproducibility** (`--seed`)
+### 3. **Waveform Design in OFDM** (`--waveform`)
+- **Description**: Adds explicit transmit sequence design in data generation and receiver-side channel estimation:
+  - `Yk = Hk * Xk + Nk`
+  - `Hk_est = Yk / Xk`
+- **Supported waveforms**: `ones`, `zc`, `gray`, `mseq`
+- **Benefit**: Enables waveform-aware ToA comparison under the same neural network architecture.
+
+### 4. **Reproducibility** (`--seed`)
 - **Description**: Global random seed control for all random libraries (Python, NumPy, PyTorch CPU/GPU) to ensure experimental reproducibility.
 - **Benefit**: Essential for academic research and thesis validation.
 
@@ -31,7 +38,15 @@ pip install -r requirements.txt
 
 All the information of channels (time delays, complex attenuation) are stored in `data/Pathset_train.mat`, `data/Pathset_test.mat`, and `data/Pathset_test_802.mat`
 
-Simply run `data/CIR_Generation.m` will generate the dataset for training and testing, stored in `data/traindata` and `data/testdata` respectively
+Use Python generator to build waveform-aware datasets:
+
+```bash
+python data/CIR_Generation.py --waveforms ones,zc,gray,mseq --ofdm_bw 40000000 --upsample 2
+```
+
+Generated files are saved in `data/traindata` and `data/testdata`, with waveform suffixes, e.g.:
+- `Train_x2_high_40MHz_A_zc.mat`
+- `Test_x2_20dB_40MHz_gray.mat`
 
 ## Interpolation module
 
@@ -43,17 +58,14 @@ Run `train.py` to train the model. It will first train the super-resolution netw
 
 ### Basic Usage
 ```bash
-# Baseline training (original method)
-python train.py --name baseline_exp --snr high --device gpu
+# Baseline training (ones waveform)
+python train.py --name baseline_exp --snr high --waveform ones --device gpu
 
-# Training with Attention Mechanism
-python train.py --name attention_exp --snr high --use_attention True --device gpu
+# Zadoff-Chu waveform
+python train.py --name zc_exp --snr high --waveform zc --device gpu
 
-# Training with End-to-End Optimization
-python train.py --name e2e_exp --snr high --use_e2e True --e_e2e 100 --lr_e2e 1e-4 --device gpu
-
-# Training with Both Enhancements
-python train.py --name full_exp --snr high --use_attention True --use_e2e True --device gpu
+# Gray-QPSK waveform
+python train.py --name gray_exp --snr high --waveform gray --device gpu
 ```
 
 ### Resume Training
@@ -111,16 +123,16 @@ Run `test.py` to test the model. You can test the customized channel model and t
 ### Basic Usage
 ```bash
 # Test baseline model
-python test.py --name baseline_exp --snr 30 --device gpu
+python test.py --name baseline_exp --snr 30 --waveform ones --device gpu
 
-# Test model with attention
-python test.py --name attention_exp --snr 30 --use_attention True --device gpu
+# Test Zadoff-Chu model
+python test.py --name zc_exp --snr 30 --waveform zc --device gpu
+```
 
-# Test end-to-end optimized model
-python test.py --name e2e_exp --snr 30 --use_e2e True --device gpu
+For batch comparison without attention/e2e, run:
 
-# Test model with both enhancements
-python test.py --name full_exp --snr 30 --use_attention True --use_e2e True --device gpu
+```bash
+bash waveform_exp.sh
 ```
 
 ### Command-line Arguments

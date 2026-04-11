@@ -57,6 +57,9 @@ def make_parser():
       help='weight for the time domain loss')
     parser.add_argument('--up', type=int, default=2,
       help='upsamping rate for the super resolution net')
+    parser.add_argument('--waveform', default='ones',
+      choices=('ones', 'zc', 'gray', 'mseq'),
+      help='waveform type used during data generation')
     
     parser.add_argument('--e_reg', type=int, default=200,
       help='number of epochs to train the super resolution network')
@@ -335,12 +338,16 @@ def train(args):
         print('Not using end-to-end joint optimization...')
     
     # Make the dataset
-    dataset_A = dataLoader('data/traindata/Train_x'+str(args.up)+'_'+args.snr+'_'+str(args.bandwidth)+'MHz_A.mat')
+    dataset_A = dataLoader(
+        'data/traindata/Train_x'+str(args.up)+'_'+args.snr+'_'+str(args.bandwidth)+'MHz_A_'+args.waveform+'.mat'
+    )
     train_loader_A = torch.utils.data.DataLoader(dataset_A, batch_size=args.batch_sr,
                                            shuffle=True, num_workers=1,
                                            pin_memory=True)
 
-    dataset_B = dataLoader('data/traindata/Train_x'+str(args.up)+'_'+args.snr+'_'+str(args.bandwidth)+'MHz_B.mat')
+    dataset_B = dataLoader(
+        'data/traindata/Train_x'+str(args.up)+'_'+args.snr+'_'+str(args.bandwidth)+'MHz_B_'+args.waveform+'.mat'
+    )
     train_loader_B = torch.utils.data.DataLoader(dataset_B, batch_size=args.batch_reg,
                                            shuffle=True, num_workers=1,
                                            pin_memory=True)

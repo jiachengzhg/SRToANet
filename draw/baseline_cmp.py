@@ -28,8 +28,9 @@ def main():
     width = 0.35
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    bars1 = ax.bar([i - width / 2 for i in x], rmse_5, width, label='SNR = 5 dB', color=colors, edgecolor='white', linewidth=0.5)
-    bars2 = ax.bar([i + width / 2 for i in x], rmse_30, width, label='SNR = 30 dB', color=colors, edgecolor='white', linewidth=0.5, alpha=0.6)
+    from matplotlib.patches import Patch
+    bars1 = ax.bar([i - width / 2 for i in x], rmse_5, width, color=colors, edgecolor='white', linewidth=0.5)
+    bars2 = ax.bar([i + width / 2 for i in x], rmse_30, width, color=colors, edgecolor='white', linewidth=0.5, alpha=0.6)
 
     for bar in bars1:
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.08,
@@ -41,7 +42,8 @@ def main():
     ax.set_ylabel('RMSE (m)')
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels, fontsize=9)
-    ax.legend()
+    ax.legend(handles=[Patch(facecolor='#555555', label='SNR = 5 dB'),
+                       Patch(facecolor='#bbbbbb', label='SNR = 30 dB')])
     ax.grid(axis='y', alpha=0.3)
     ax.set_title('基线方法测距RMSE对比')
 

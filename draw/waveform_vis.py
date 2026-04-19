@@ -34,7 +34,7 @@ def main():
     ax.set_xlabel('子载波索引')
     ax.set_ylabel('功率分配')
     ax.set_title('不同 α 下的子载波功率分配')
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=0, top=0.08)
     ax.legend()
     ax.grid(True, alpha=0.3)
 

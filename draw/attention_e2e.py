@@ -79,7 +79,7 @@ def main():
     axes[1][0].set_ylabel('RMSE (m)')
 
     handles, labels = axes[0][0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='lower center', ncol=4, fontsize=8,
+    fig.legend(handles, labels, loc='lower center', ncol=4, fontsize=10,
               bbox_to_anchor=(0.5, -0.02))
 
     plt.tight_layout(rect=[0, 0.06, 1, 1])

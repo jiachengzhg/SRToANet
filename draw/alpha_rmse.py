@@ -23,6 +23,7 @@ def main():
                 f'{val:.3f}', va='center', fontsize=9)
 
     ax.set_xlabel('RMSE (m)')
+    ax.set_xlim(left=0, right=9.0)
     ax.set_title('波形设计 α 扫描 — TOA估计RMSE')
     ax.invert_yaxis()
     ax.grid(axis='x', alpha=0.3)

@@ -35,7 +35,20 @@ def sum_exponentials(freq_grid, paths, coef):
     return freq_resp
 
 
-def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsample, path, debug, alpha_val=None):
+def generate_dataset(
+    saved_dist,
+    saved_mag,
+    saved_paths,
+    SNR_list,
+    ofdm_bw,
+    upsample,
+    path,
+    debug,
+    alpha_val=None,
+    num_symbols=1,
+    save_multi_snapshot=False,
+    force_overwrite=False,
+):
     """
     生成数据集
     
@@ -53,6 +66,11 @@ def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsa
     import matplotlib.pyplot as plt
     
     DISPLAY = debug  # 1 for display mode, 0 for generation mode
+    if num_symbols < 1:
+        raise ValueError("num_symbols must be >= 1")
+    if os.path.exists(path) and not force_overwrite:
+        print(f"Skip existing file (default no overwrite): {path}")
+        return False
     
     tones_gap = 312.5e3  # 802.11 g/n/ac standard
     N_tones = round(ofdm_bw / tones_gap)  # number of subcarriers
@@ -83,7 +101,19 @@ def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsa
     cir_h = np.zeros((N, 2, N_tones * upsample))
     cfr_h = np.zeros((N, 2, N_tones * upsample))
     
-    print(f'Generating {path}...,  Upsample: {upsample}, Bandwidth: {int(ofdm_bw / 1e6)}')
+    if save_multi_snapshot:
+        cfr_l_snap = np.zeros((N, num_symbols, 2, N_tones))
+        cir_l_snap = np.zeros((N, num_symbols, 2, N_tones * upsample))
+        gt_num_paths = np.zeros((N, 1), dtype=np.int32)
+    else:
+        cfr_l_snap = None
+        cir_l_snap = None
+        gt_num_paths = None
+
+    print(
+        f'Generating {path}..., Upsample: {upsample}, Bandwidth: {int(ofdm_bw / 1e6)}, '
+        f'Snapshots: {num_symbols if save_multi_snapshot else 1}'
+    )
     
     for kk in range(len(saved_dist)):
         ##################################################
@@ -111,6 +141,9 @@ def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsa
             paths = paths.flatten()
         if isinstance(coef, np.ndarray) and coef.ndim > 1:
             coef = coef.flatten()
+        path_count = int(len(paths))
+        if save_multi_snapshot:
+            gt_num_paths[kk, 0] = path_count
         
         # Sample the ground truth channel frequency response
         freq_resp_l = np.fft.fftshift(sum_exponentials(grid_l, paths * 1e-9, coef))
@@ -135,33 +168,51 @@ def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsa
                 p_h = np.interp(np.linspace(0, 1, len(freq_resp_h)), np.linspace(0, 1, len(p)), p)
                 freq_resp_h = freq_resp_h * np.sqrt(p_h * len(p_h))
         
-        # add noise
-        noise = np.sqrt(noise_pwr / 2) * (np.random.randn(N_tones) + 1j * np.random.randn(N_tones))
-        freq_resp_obs = freq_resp_l + noise
-        
-        # Zero padding the observed channel frequency response
-        # MATLAB索引: freq_resp_obs(1:N_tones/2) -> Python: freq_resp_obs[0:N_tones//2]
-        # MATLAB索引: freq_resp_obs(end-N_tones/2+1:end) -> Python: freq_resp_obs[-N_tones//2:]
-        freq_resp_obs_pad = np.concatenate([
-            freq_resp_obs[0:N_tones//2],
-            np.zeros((upsample - 1) * N_tones, dtype=complex),
-            freq_resp_obs[-N_tones//2:]
-        ])
+        freq_resp_obs_first = None
+        freq_resp_obs_pad_first = None
+        cir_pad_first = None
+        for sym_idx in range(num_symbols):
+            # add noise per OFDM symbol snapshot
+            noise = np.sqrt(noise_pwr / 2) * (
+                np.random.randn(N_tones) + 1j * np.random.randn(N_tones)
+            )
+            freq_resp_obs = freq_resp_l + noise
+
+            # Zero padding the observed channel frequency response
+            # MATLAB索引: freq_resp_obs(1:N_tones/2) -> Python: freq_resp_obs[0:N_tones//2]
+            # MATLAB索引: freq_resp_obs(end-N_tones/2+1:end) -> Python: freq_resp_obs[-N_tones//2:]
+            freq_resp_obs_pad = np.concatenate([
+                freq_resp_obs[0:N_tones//2],
+                np.zeros((upsample - 1) * N_tones, dtype=complex),
+                freq_resp_obs[-N_tones//2:]
+            ])
+            cir_pad = np.fft.ifft(freq_resp_obs_pad)
+
+            if sym_idx == 0:
+                freq_resp_obs_first = freq_resp_obs
+                freq_resp_obs_pad_first = freq_resp_obs_pad
+                cir_pad_first = cir_pad
+
+            if save_multi_snapshot:
+                cfr_l_snap[kk, sym_idx, 0, :] = np.real(freq_resp_obs)
+                cfr_l_snap[kk, sym_idx, 1, :] = np.imag(freq_resp_obs)
+                cir_l_snap[kk, sym_idx, 0, :] = np.real(cir_pad)
+                cir_l_snap[kk, sym_idx, 1, :] = np.imag(cir_pad)
         
         if DISPLAY == 1:
             time_h = np.arange(N_tones * upsample) / ofdm_bw / 2
             dist_h = time_h * C
             
             plt.figure()
-            plt.plot(dist_h, np.abs(np.fft.ifft(freq_resp_obs_pad)))
+            plt.plot(dist_h, np.abs(np.fft.ifft(freq_resp_obs_pad_first)))
             plt.xlabel("Distance")
             plt.title(f'SNR (dB): {SNR}  Bandwidth (MHz): {int(ofdm_bw / 1e6)}')
             plt.plot(dist_h, np.abs(np.fft.ifft(freq_resp_h)))
-            plt.plot(dd * np.ones(100), np.linspace(0, 1.25 * np.max(np.abs(np.fft.ifft(freq_resp_obs_pad))), 100))
+            plt.plot(dd * np.ones(100), np.linspace(0, 1.25 * np.max(np.abs(np.fft.ifft(freq_resp_obs_pad_first))), 100))
             plt.legend(['low resolution', 'high resolution', 'ground truth'])
             
             plt.figure()
-            plt.plot(grid_h, np.abs(np.fft.fftshift(freq_resp_obs_pad)))
+            plt.plot(grid_h, np.abs(np.fft.fftshift(freq_resp_obs_pad_first)))
             plt.xlabel("Distance")
             plt.title(f'SNR (dB): {SNR}  Bandwidth (MHz): {int(ofdm_bw / 1e6)}')
             plt.plot(grid_h, np.abs(np.fft.fftshift(freq_resp_h)))
@@ -170,19 +221,25 @@ def generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsa
             plt.show()
             input("Press Enter to continue...")  # 等效于 MATLAB 的 keyboard
         
-        cir_pad = np.fft.ifft(freq_resp_obs_pad)
         cirh = np.fft.ifft(freq_resp_h)
         cfrh = freq_resp_h
         
-        cir_l[kk, 0, :] = np.real(cir_pad)
-        cir_l[kk, 1, :] = np.imag(cir_pad)
+        # Keep legacy single-snapshot field for backward compatibility.
+        cir_l[kk, 0, :] = np.real(cir_pad_first)
+        cir_l[kk, 1, :] = np.imag(cir_pad_first)
         cfr_h[kk, 0, :] = np.real(cfrh)
         cfr_h[kk, 1, :] = np.imag(cfrh)
         cir_h[kk, 0, :] = np.real(cirh)
         cir_h[kk, 1, :] = np.imag(cirh)
     
     dist = saved_dist.reshape(-1, 1)  # 转换为列向量 (N, 1) 以匹配 MATLAB 格式
-    savemat(path, {'cir_l': cir_l, 'cir_h': cir_h, 'cfr_h': cfr_h, 'dist': dist})
+    save_dict = {'cir_l': cir_l, 'cir_h': cir_h, 'cfr_h': cfr_h, 'dist': dist}
+    if save_multi_snapshot:
+        save_dict['cfr_l_snap'] = cfr_l_snap
+        save_dict['cir_l_snap'] = cir_l_snap
+        save_dict['gt_num_paths'] = gt_num_paths
+    savemat(path, save_dict)
+    return True
 
 
 def load_cell_array(mat_data, key):
@@ -206,6 +263,9 @@ def main():
     parser.add_argument('--alpha', type=float, default=None, help='Waveform design alpha (0-1). None for uniform power.')
     parser.add_argument('--bandwidth', type=int, default=40, help='OFDM bandwidth in MHz')
     parser.add_argument('--upsample', type=int, default=2, help='Upsampling rate')
+    parser.add_argument('--num_symbols', type=int, default=1, help='Number of OFDM symbols for test snapshots')
+    parser.add_argument('--save_multi_snapshot', action='store_true', help='Save multi-snapshot test data for MUSIC')
+    parser.add_argument('--force_overwrite', action='store_true', help='Overwrite existing output files')
     args = parser.parse_args()
 
     # 获取脚本所在目录
@@ -223,7 +283,13 @@ def main():
     ofdm_bw = args.bandwidth * 1e6  # Target ofdm bandwidth
     upsample = args.upsample  # Up-sampling rate for super-resolution
     alpha_val = args.alpha
+    num_symbols = args.num_symbols
+    save_multi_snapshot = args.save_multi_snapshot
+    force_overwrite = args.force_overwrite
     suffix = f"_alpha{alpha_val}" if alpha_val is not None else ""
+
+    if num_symbols < 1:
+        raise ValueError("--num_symbols must be >= 1")
     
     # 提取数据
     saved_dist = train_data['saved_dist'].flatten()
@@ -241,16 +307,70 @@ def main():
     ############## Generate low SNR training sets ################
     SNR_list = np.arange(-2.5, 7.5 + 0.1, 0.1)
     save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_A{suffix}.mat'
-    generate_dataset(saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY, alpha_val)
+    if save_multi_snapshot or num_symbols > 1:
+        print("Info: train set always uses single snapshot; ignoring multi-snapshot options for train data.")
+    generate_dataset(
+        saved_dist_A,
+        saved_mag_A,
+        saved_paths_A,
+        SNR_list,
+        ofdm_bw,
+        upsample,
+        save_path,
+        DISPLAY,
+        alpha_val,
+        num_symbols=1,
+        save_multi_snapshot=False,
+        force_overwrite=force_overwrite,
+    )
     save_path = f'traindata/Train_x{upsample}_low_{int(ofdm_bw * 1e-6)}MHz_B{suffix}.mat'
-    generate_dataset(saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY, alpha_val)
+    generate_dataset(
+        saved_dist_B,
+        saved_mag_B,
+        saved_paths_B,
+        SNR_list,
+        ofdm_bw,
+        upsample,
+        save_path,
+        DISPLAY,
+        alpha_val,
+        num_symbols=1,
+        save_multi_snapshot=False,
+        force_overwrite=force_overwrite,
+    )
     
     ############## Generate high SNR training sets ################
     SNR_list = np.arange(7.5, 32.5 + 0.1, 0.1)
     save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_A{suffix}.mat'
-    generate_dataset(saved_dist_A, saved_mag_A, saved_paths_A, SNR_list, ofdm_bw, upsample, save_path, DISPLAY, alpha_val)
+    generate_dataset(
+        saved_dist_A,
+        saved_mag_A,
+        saved_paths_A,
+        SNR_list,
+        ofdm_bw,
+        upsample,
+        save_path,
+        DISPLAY,
+        alpha_val,
+        num_symbols=1,
+        save_multi_snapshot=False,
+        force_overwrite=force_overwrite,
+    )
     save_path = f'traindata/Train_x{upsample}_high_{int(ofdm_bw * 1e-6)}MHz_B{suffix}.mat'
-    generate_dataset(saved_dist_B, saved_mag_B, saved_paths_B, SNR_list, ofdm_bw, upsample, save_path, DISPLAY, alpha_val)
+    generate_dataset(
+        saved_dist_B,
+        saved_mag_B,
+        saved_paths_B,
+        SNR_list,
+        ofdm_bw,
+        upsample,
+        save_path,
+        DISPLAY,
+        alpha_val,
+        num_symbols=1,
+        save_multi_snapshot=False,
+        force_overwrite=force_overwrite,
+    )
     
     ############## Generate test sets ##############################
     
@@ -266,8 +386,22 @@ def main():
     
     for i in range(len(SNR_set)):
         SNR_list = np.array([SNR_set[i], SNR_set[i]])
-        save_path = f'testdata/Test_x{upsample}_{SNR_set[i]}dB_{int(ofdm_bw * 1e-6)}MHz{suffix}.mat'
-        generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsample, save_path, DISPLAY, alpha_val)
+        snap_suffix = f"_M{num_symbols}" if (save_multi_snapshot and num_symbols > 1) else ""
+        save_path = f'testdata/Test_x{upsample}_{SNR_set[i]}dB_{int(ofdm_bw * 1e-6)}MHz{suffix}{snap_suffix}.mat'
+        generate_dataset(
+            saved_dist,
+            saved_mag,
+            saved_paths,
+            SNR_list,
+            ofdm_bw,
+            upsample,
+            save_path,
+            DISPLAY,
+            alpha_val,
+            num_symbols=num_symbols,
+            save_multi_snapshot=(save_multi_snapshot and num_symbols > 1),
+            force_overwrite=force_overwrite,
+        )
     
     test_data_802 = loadmat('Pathset_test_802.mat')
     saved_dist = test_data_802['saved_dist'].flatten()
@@ -276,8 +410,22 @@ def main():
     
     for i in range(len(SNR_set)):
         SNR_list = np.array([SNR_set[i], SNR_set[i]])
-        save_path = f'testdata/Test_x{upsample}_{SNR_set[i]}dB_{int(ofdm_bw * 1e-6)}MHz_802{suffix}.mat'
-        generate_dataset(saved_dist, saved_mag, saved_paths, SNR_list, ofdm_bw, upsample, save_path, DISPLAY, alpha_val)
+        snap_suffix = f"_M{num_symbols}" if (save_multi_snapshot and num_symbols > 1) else ""
+        save_path = f'testdata/Test_x{upsample}_{SNR_set[i]}dB_{int(ofdm_bw * 1e-6)}MHz_802{suffix}{snap_suffix}.mat'
+        generate_dataset(
+            saved_dist,
+            saved_mag,
+            saved_paths,
+            SNR_list,
+            ofdm_bw,
+            upsample,
+            save_path,
+            DISPLAY,
+            alpha_val,
+            num_symbols=num_symbols,
+            save_multi_snapshot=(save_multi_snapshot and num_symbols > 1),
+            force_overwrite=force_overwrite,
+        )
 
 
 if __name__ == '__main__':

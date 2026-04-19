@@ -1,0 +1,9 @@
+﻿实验,5dB,30dB
+origin_low,2.469,1.596
+origin_high,2.131,1.091
+attention_low,2.168,1.566
+attention_high,2.587,0.95
+e2e_low,2.112,1.593
+e2e_high,2.434,0.897
+both_low,2.104,1.685
+both_high,2.546,0.962

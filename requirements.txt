@@ -3,3 +3,4 @@ torch
 scipy
 matplotlib
 torchinterp1d
+pandas
